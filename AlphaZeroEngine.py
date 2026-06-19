@@ -6,44 +6,60 @@ class AlphaZeroEngine():
     EXPLORATION_CONSTANT = 0
     DNN = None
     board = None
+    playing_board = None
+    tau_info = None
 
-    def __init__(self, SELF_PLAY_BATCH_COUNT, SIMULATION_COUNT, EXPLORATION_CONSTANT, board):
+    def __init__(self, SELF_PLAY_BATCH_COUNT, SIMULATION_COUNT, EXPLORATION_CONSTANT, board, tau_info):
         self.SELF_PLAY_BATCH_COUNT = SELF_PLAY_BATCH_COUNT
         self.SIMULATION_COUNT = SIMULATION_COUNT
         self.EXPLORATION_CONSTANT = EXPLORATION_CONSTANT
         self.board = board
+        self.tau_info = tau_info
+
     
     def self_play(self):
         games_data = []
         for _ in range(self.SELF_PLAY_BATCH_COUNT):
             game_data = []
-            board = self.board()
-            while not board.has_ended():
-                game_data = []
-                PI = self.calculate_MCTS(board.get_state())
+            self.playing_board = self.board()
+            while not self.playing_board.has_ended():
+                PI = self.calculate_MCTS(self.playing_board.get_state())
                 actions = list(PI.keys())
                 probabilities = list(PI.values())
                 selected_action = np.random.choice(actions, p = probabilities)
-                game_data.append((board.get_state(), PI, None))
-                board.play(selected_action)
-            self.broadcast_z(game_data)
+                game_data.append([self.playing_board.get_state(), PI, None])
+                self.playing_board.play(selected_action)
+            self.broadcast_z(game_data, self.playing_board.get_outcome())
             games_data.append(game_data)
         return games_data
 
-    def broadcast_z(self, game_data):
-        pass
+    def broadcast_z(self, game_data, Z):
+        for turn_state in game_data[::-1]:
+            turn_state[2] = Z
+            Z = -Z
 
     def calculate_MCTS(self, state):
+        PI = {}
         tree = {}
         path = [(state, None)]
-        for _ in self.SIMULATION_COUNT:
+        for _ in range(self.SIMULATION_COUNT):
             while True:
                 next_s, action = self.simulation_step(path, tree)
                 path.append((next_s, action))
                 if not next_s:
                     path = [(state, None)]
                     break
-
+        board = self.board(state)
+        tau = self.tau_info["high_tau"]
+        if self.playing_board.get_fullmove_count() > self.tau_info["move_switch_count"]:
+            tau = self.tau_info["low_tau"]
+        N_tau = 0
+        for actions_from_starting_state in board.get_legal_moves():
+            N_tau += tree[state]["N_a"][actions_from_starting_state] ** (1/tau)
+        for actions_from_starting_state in board.get_legal_moves():
+            PI[actions_from_starting_state] = tree[state]["N_a"][actions_from_starting_state] ** (1/tau)/N_tau
+        return PI
+    
     def simulation_step(self, path, tree):
         if len(path) >= 1:
             curr_s = path[-1][0]
@@ -51,7 +67,7 @@ class AlphaZeroEngine():
             return (None, None)
         board = self.board(curr_s)
         legal_moves = board.get_legal_moves()
-        if not legal_moves:
+        if board.has_ended():
             Z = board.get_outcome()
             self.backprop_MCTS(Z, path, tree)
             return (None, None)
@@ -68,7 +84,7 @@ class AlphaZeroEngine():
                 if temp > max_val:
                     max_move = legal_move
                     max_val = temp
-            new_state = self.play(curr_s, max_move)
+            new_state = board.play(max_move)
             return (new_state, max_move)
         
         Q_a = {}
@@ -99,8 +115,6 @@ class AlphaZeroEngine():
             next_Q_a = curr_Q_a + (V_Z - curr_Q_a) / N
             tree[state]["Q_a"][curr_action] = next_Q_a
             
-
-
     def calculate_PUCT(self, Q_sa, N_sa, P_sa, N_s):
         exploitation = Q_sa
         exploration = self.EXPLORATION_CONSTANT * P_sa * np.sqrt(N_s/(1 + N_sa))
