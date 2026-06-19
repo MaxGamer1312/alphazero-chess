@@ -17,16 +17,15 @@ class AlphaZeroEngine():
         games_data = []
         for _ in range(self.SELF_PLAY_BATCH_COUNT):
             game_data = []
-            starting_position = self.board.get_starting_position()
-            self.board.set_state(starting_position)
-            while not self.board.has_ended():
+            board = self.board()
+            while not board.has_ended():
                 game_data = []
-                PI = self.calculate_MCTS(self.board.get_state())
+                PI = self.calculate_MCTS(board.get_state())
                 actions = list(PI.keys())
                 probabilities = list(PI.values())
                 selected_action = np.random.choice(actions, p = probabilities)
-                game_data.append((self.board.get_state(), PI, None))
-                self.board.play(selected_action)
+                game_data.append((board.get_state(), PI, None))
+                board.play(selected_action)
             self.broadcast_z(game_data)
             games_data.append(game_data)
         return games_data
@@ -50,11 +49,11 @@ class AlphaZeroEngine():
             curr_s = path[-1][0]
         else:
             return (None, None)
-        
-        legal_moves = self.board.get_legal_moves()
+        board = self.board(curr_s)
+        legal_moves = board.get_legal_moves()
         if not legal_moves:
-            Z = self.board.get_outcome()
-            self.backprop_MCTS(Z, path)
+            Z = board.get_outcome()
+            self.backprop_MCTS(Z, path, tree)
             return (None, None)
         
         if curr_s in tree:
@@ -79,7 +78,7 @@ class AlphaZeroEngine():
         for legal_move in legal_moves:
             Q_a[legal_move] = 0
             N_a[legal_move] = 0
-        self.backprop(V, path)
+        self.backprop_MCTS(V, path, tree)
         leaf = {}
         leaf["Q_a"] = Q_a
         leaf["N_a"] = N_a
@@ -88,8 +87,19 @@ class AlphaZeroEngine():
         tree[curr_s] = leaf
         return (None, None)
 
-    def backprop_MCTS(V, path):
-        pass
+    def backprop_MCTS(self, V_Z, path, tree):
+        for i in range(len(path) - 2, -1, -1):
+            V_Z = -V_Z
+            state = path[i][0]
+            curr_action = path[i + 1][1]
+            tree[state]["N_a"][curr_action] += 1
+            tree[state]["N"] += 1
+            N = tree[state]["N"]
+            curr_Q_a = tree[state]["Q_a"][curr_action]
+            next_Q_a = curr_Q_a + (V_Z - curr_Q_a) / N
+            tree[state]["Q_a"][curr_action] = next_Q_a
+            
+
 
     def calculate_PUCT(self, Q_sa, N_sa, P_sa, N_s):
         exploitation = Q_sa
