@@ -25,3 +25,7 @@ class Board(ABC):
     @abstractmethod
     def get_fullmove_count(self):
         ...
+    
+    @abstractmethod
+    def get_DNN_input(self):
+        ...
